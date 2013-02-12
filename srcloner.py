@@ -59,6 +59,7 @@ class StoneRidgeCloner(object):
         self.ldap = ldap
         self.sha = sha
         self.attempt = attempt
+        self.use_debug = {}
 
         if not os.path.exists(self.outroot):
             os.mkdir(self.outroot)
@@ -117,6 +118,7 @@ class StoneRidgeCloner(object):
         logging.debug('creating download url for %s' % (fname,))
         remotefile = self.path
         if not self.nightly:
+            try_subdir = self.use_debug.get(try_subdir, try_subdir)
             remotefile = '/'.join([remotefile, try_subdir])
         remotefile = '/'.join([remotefile, fname])
         logging.debug('remote filename: %s' % (remotefile,))
@@ -309,10 +311,15 @@ class StoneRidgeCloner(object):
             # is ready for us to download.
             for d in subdirs:
                 if d not in files:
-                    self.exit_and_maybe_defer(
-                            'Run %s not available: retry later' % (d,))
+                    debug_dir = '%s-debug' % (d,)
+                    if debug_dir not in files:
+                        self.exit_and_maybe_defer(
+                                'Run %s not available: retry later' % (d,))
+                    else:
+                        self.use_debug[d] = debug_dir
 
-            dist_path = '/'.join([self.path, subdirs[0]])
+            subdir = self.use_debug.get(subdirs[0], subdirs[0])
+            dist_path = '/'.join([self.path, subdir])
             dist_files = self._gather_filelist(dist_path)
 
             if not dist_files:
