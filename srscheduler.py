@@ -9,13 +9,17 @@ import stoneridge
 
 
 class StoneRidgeScheduler(stoneridge.QueueListener):
-    def setup(self, netconfig):
+    def setup(self, rpc_queue, netconfig):
+        self.rpc_queue = rpc_queue
         self.netconfig = netconfig
 
         self.runners = {
-            'linux': stoneridge.QueueWriter(stoneridge.CLIENT_QUEUES['linux']),
-            'mac': stoneridge.QueueWriter(stoneridge.CLIENT_QUEUES['mac']),
-            'windows': stoneridge.QueueWriter(stoneridge.CLIENT_QUEUES['windows']),
+            'linux': stoneridge.RpcCaller(stoneridge.CLIENT_QUEUES['linux'],
+                self.rpc_queue),
+            'mac': stoneridge.RpcCaller(stoneridge.CLIENT_QUEUES['mac'],
+                self.rpc_queue),
+            'windows': stoneridge.RpcCaller(stoneridge.CLIENT_QUEUES['windows'],
+                self.rpc_queue)
         }
 
     def handle(self, srid, operating_systems, tstamp):
@@ -26,11 +30,19 @@ class StoneRidgeScheduler(stoneridge.QueueListener):
                 continue
 
             logging.debug('Calling to run %s on %s' % (srid, o))
-            runner.enqueue(srid=srid, netconfig=self.netconfig, tstamp=tstamp)
+            res = runner(srid=srid, netconfig=self.netconfig, tstamp=tstamp)
+
+            if res['ok']:
+                logging.debug('Run of %s on %s succeeded' % (srid, o))
+            else:
+                logging.error('Run of %s on %s failed: %s' % (srid, o,
+                    res['msg']))
 
 
 def daemon(netconfig):
-    scheduler = StoneRidgeScheduler(stoneridge.NETCONFIG_QUEUES[netconfig],
+    queues = stoneridge.NETCONFIG_QUEUES[netconfig]
+
+    scheduler = StoneRidgeScheduler(queues['incoming'], rpc_queue=queues['rpc'],
             netconfig=netconfig)
     scheduler.run()
 
