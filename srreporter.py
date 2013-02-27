@@ -62,10 +62,13 @@ class StoneRidgeReporter(stoneridge.QueueListener):
             f.write(metadata)
 
         if ldap is not None:
+            results_name = 'p2sr-results-%s-%s-%s.zip' % (srid,
+                                                          operating_system,
+                                                          netconfig)
             msg_text = EMAIL_MESSAGE % (ldap, srid, operating_system,
                                         netconfig)
             stoneridge.sendmail(ldap, 'Stone Ridge Complete',
-                                msg_text, (metadata_file, 'results.zip'))
+                                msg_text, (metadata_file, results_name))
 
     def handle(self, srid, netconfig, operating_system, results, metadata,
                ldap, tstamp):
