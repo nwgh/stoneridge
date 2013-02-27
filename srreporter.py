@@ -44,13 +44,12 @@ class StoneRidgeReporter(stoneridge.QueueListener):
         logging.debug('unittest: %s' % (self.unittest,))
 
     def save_data(self, srid, netconfig, operating_system, results,
-                  metadata_b64, ldap):
-        dirname = '%s_%s_%s' % (srid, netconfig, operating_system)
+                  metadata_b64, ldap, tstamp):
+        gmtime = time.gmtime(tstamp)
+        tstr = time.strftime('%Y%m%d%H%M%S', gmtime)
+        dirname = os.path.join('%s_%s' % (tstr, srid), netconfig,
+                               operating_system)
         archivedir = os.path.join(self.archives, dirname)
-        if os.path.exists(archivedir):
-            # Don't overwrite previous archives, just make yet another
-            # directory for the new run of this srid
-            archivedir = '%s_%s' % (archivedir, int(time.time()))
         os.makedirs(archivedir)
 
         results_file = os.path.join(archivedir, 'results.json')
@@ -63,13 +62,13 @@ class StoneRidgeReporter(stoneridge.QueueListener):
             f.write(metadata)
 
         if ldap is not None:
-            msg_text =  EMAIL_MESSAGE % (ldap, srid, operating_system,
-                                         netconfig)
+            msg_text = EMAIL_MESSAGE % (ldap, srid, operating_system,
+                                        netconfig)
             stoneridge.sendmail(ldap, 'Stone Ridge Complete',
                                 msg_text, (metadata_file, 'results.zip'))
 
     def handle(self, srid, netconfig, operating_system, results, metadata,
-               ldap):
+               ldap, tstamp):
         logging.debug('uploading results for %s' % (srid,))
 
         for name in results:
@@ -104,7 +103,7 @@ class StoneRidgeReporter(stoneridge.QueueListener):
                                   (srid, result['status']))
 
         self.save_data(srid, netconfig, operating_system, results, metadata,
-                       ldap)
+                       ldap, tstamp)
 
 
 def daemon():

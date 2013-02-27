@@ -50,10 +50,11 @@ class StoneRidgeUploader(object):
         netconfig = stoneridge.get_config('run', 'netconfig')
         ldap = stoneridge.get_config('run', 'ldap')
         operating_system = stoneridge.get_config('machine', 'os')
+        tstamp = stoneridge.get_config_int('run', 'tstamp')
         self.queue.enqueue(srid=srid, results=results, metadata=metadata,
                            netconfig=netconfig,
                            operating_system=operating_system,
-                           ldap=ldap)
+                           ldap=ldap, tstamp=tstamp)
 
 
 @stoneridge.main
