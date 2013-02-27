@@ -138,7 +138,7 @@ if __name__ == '__main__':
                         choices=('win32', 'macosx64', 'linux64', 'all'),
                         help='Operating systems to run tests on',
                         action='append')
-    parser.add_argument('--status', dest=get_status, action='store_true',
+    parser.add_argument('--status', dest='get_status', action='store_true',
                         help='Get status of a push')
     parser.add_argument('sha', default=None,  help='SHA of try run to push')
     args = parser.parse_args()
