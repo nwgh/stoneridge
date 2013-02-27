@@ -66,13 +66,11 @@ class StoneRidgeCollator(object):
                     logging.debug('v: %s' % (v,))
                     if k == 'total':
                         logging.debug('appending total %s' % (v['total'],))
-                        # The graph server calculates totals for us, we just
-                        # keep our calculations around for verification in case
-                        results['results_aux']['totals'].append(v['total'])
+                        results['results']['time'].append(v['total'])
                     else:
                         logging.debug('appending %s total %s' %
                                       (k, v['total']))
-                        results['results'][k].append(v['total'])
+                        results['results_aux'][k].append(v['total'])
 
                         for s in ('start', 'stop'):
                             key = '%s_%s' % (k, s)
