@@ -132,14 +132,14 @@ if __name__ == '__main__':
                         help='Path to configuration file')
     parser.add_argument('--netconfig', dest='netconfigs',
                         choices=('broadband', 'umts', 'gsm', 'all'),
-                        required=True,
                         help='Netconfigs to run tests against',
                         action='append')
     parser.add_argument('--os', dest='operating_systems',
                         choices=('win32', 'macosx64', 'linux64', 'all'),
-                        required=True,
                         help='Operating systems to run tests on',
                         action='append')
+    parser.add_argument('--status', dest=get_status, action='store_true',
+                        help='Get status of a push')
     parser.add_argument('sha', default=None,  help='SHA of try run to push')
     args = parser.parse_args()
 
@@ -175,6 +175,14 @@ if __name__ == '__main__':
         ldap = options['ldap']
         password = options['password']
         host = options['host']
+
+    if args.get_status:
+        # TODO
+        pass
+
+    if not args.netconfigs or not args.operating_systems:
+        sys.stderr.write('Missing netconfigs or operating systems')
+        sys.exit(1)
 
     if 'all' in args.netconfigs:
         netconfigs = ['broadband', 'umts', 'gsm']
