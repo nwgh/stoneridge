@@ -43,7 +43,7 @@ class StoneRidgeCollator(object):
 
             # Figure out the test-specific data
             fname = os.path.basename(ofile)
-            suite = fname.split('.')[0]
+            suite = fname.rsplit('.', 2)[0]
             results['testrun']['suite'] = suite
             ldap = stoneridge.get_config('run', 'ldap')
             if ldap is None:
