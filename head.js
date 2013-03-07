@@ -104,6 +104,13 @@ var _child_harness_loaded = false;
 function run_test_in_child() {
   if (!_child_harness_loaded) {
     _child_harness_loaded = true;
+
+    // Disable necko IPC security checks, since we don't have a docshell
+    var prefs = Cc["@mozilla.org/preferences-service;1"]
+        .getService(Ci.nsIPrefBranch);
+    prefs.setBoolPref('network.disable.ipc.security', true);
+
+    // Set up all the variables we need to run the test appropriately
     pescape = function pescape(path) {
         return path.replace(/\\/g, "\\\\");
     };
