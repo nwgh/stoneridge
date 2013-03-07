@@ -80,19 +80,34 @@ class StoneRidgeRunner(object):
         logging.debug('args to prepend: %s' % (preargs,))
 
         # Ensure our output directory exists
+        def escape(path):
+            return path.replace('\\', '\\\\')
+
         outdir = stoneridge.get_config('run', 'out')
         installroot = stoneridge.get_config('stoneridge', 'root')
-        escaped_outdir = outdir.replace('\\', '\\\\')
+        head_path = os.path.join(installroot, 'head.js')
 
         for test in tests:
             logging.debug('test: %s' % (test,))
             outfile = '%s.out' % (test,)
             logging.debug('outfile: %s' % (outfile,))
+            test_path = os.path.join(self.testroot, test)
             args = preargs + [
-                '-e', 'const _SR_OUT_SUBDIR = "%s";' % (escaped_outdir,),
+                '-e', 'const _SR_OUT_SUBDIR = "%s";' % (escape(outdir),),
                 '-e', 'const _SR_OUT_FILE = "%s";' % (outfile,),
-                '-f', os.path.join(installroot, 'head.js'),
-                '-f', os.path.join(self.testroot, test),
+                '-e', 'const _SR_HEAD_JS = "%s";' % (escape(head_path),),
+                '-e', 'const _SR_TEST_JS = "%s";' % (escape(test_path),)
+            ]
+            if test_path.endswith('.ipc.js'):
+                test_bits = test_path.rsplit('.', 2)
+                real_test_path = '.'.join([test_bits[0], test_bits[2]])
+                args += [
+                    '-e', 'const _SR_IPC_TEST_JS = "%s";' %
+                    (escape(real_test_path),)
+                ]
+            args += [
+                '-f', head_path,
+                '-f', test_path,
                 '-e', 'do_stoneridge(); quit(0);'
             ]
             logging.debug('xpcshell args: %s' % (args,))

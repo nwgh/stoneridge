@@ -7,8 +7,9 @@
  * test suite. This must be run under xpcshell running in JS v1.8 mode.
  */
 
-var STONERIDGE_FINISHED = null;
-var STONERIDGE_RESULTS = null;
+var _stoneridge_finished = null;
+var _stoneridge_results = null;
+var _save_results = true;
 
 var Cc = Components.classes;
 var Ci = Components.interfaces;
@@ -23,10 +24,10 @@ function do_write_result(key, start, stop) {
 
   var val = {'start':startms, 'stop':stopms, 'total':stopms - startms};
 
-  if (STONERIDGE_RESULTS.hasOwnProperty(key)) {
-    STONERIDGE_RESULTS[key].push(val);
+  if (_stoneridge_results.hasOwnProperty(key)) {
+    _stoneridge_results[key].push(val);
   } else {
-    STONERIDGE_RESULTS[key] = [val];
+    _stoneridge_results[key] = [val];
   }
 }
 
@@ -36,7 +37,12 @@ function do_write_result(key, start, stop) {
  * with.
  */
 function do_test_finish() {
-  STONERIDGE_FINISHED = true;
+  _stoneridge_finished = true;
+}
+
+function do_ipc_test_finish() {
+  _save_results = false;
+  do_test_finish();
 }
 
 /*
@@ -58,7 +64,7 @@ function _do_save_results() {
                 createInstance(Ci.nsIFileOutputStream);
   ostream.init(ofile, -1, -1, 0);
 
-  var jstring = JSON.stringify(STONERIDGE_RESULTS);
+  var jstring = JSON.stringify(_stoneridge_results);
   ostream.write(jstring, jstring.length);
   ostream.close();
 }
@@ -72,18 +78,42 @@ function make_channel(url) {
  * The main entry point for all stone ridge tests
  */
 function do_stoneridge() {
-  STONERIDGE_FINISHED = false;
-  STONERIDGE_RESULTS = {};
+  _stoneridge_finished = false;
+  _stoneridge_results = {};
 
   run_test();
 
   // Pump the event loop until we're told to stop
   var thread = Cc["@mozilla.org/thread-manager;1"].
                getService().currentThread;
-  while (!STONERIDGE_FINISHED)
+  while (!_stoneridge_finished)
     thread.processNextEvent(true);
   while (thread.hasPendingEvents())
     thread.processNextEvent(true);
 
-  _do_save_results();
+  if (_save_results) {
+    _do_save_results();
+  }
+}
+
+function do_stoneridge_ipc() {
+}
+
+var _child_harness_loaded = false;
+
+function run_test_in_child() {
+  if (!_child_harness_loaded) {
+    _child_harness_loaded = true;
+    pescape = function pescape(path) {
+        return path.replace(/\\/g, "\\\\");
+    };
+    sendCommand("const _SR_HEAD_JS='" + pescape(_SR_HEAD_JS) + "';" +
+                "const _SR_IPC_TEST_JS='" + pescape(_SR_IPC_TEST_JS) + "';" +
+                "const _SR_OUT_SUBDIR='" + pescape(_SR_OUT_SUBDIR) + "';" +
+                "const _SR_OUT_FILE='" + pescape(_SR_OUT_FILE) + "';" +
+                "load(_SR_HEAD_JS);" +
+                "load(_SR_IPC_TEST_JS);");
+  }
+
+  sendCommand("do_stoneridge();", do_ipc_test_finish);
 }
