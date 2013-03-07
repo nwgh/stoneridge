@@ -43,7 +43,15 @@ class StoneRidgeCollator(object):
 
             # Figure out the test-specific data
             fname = os.path.basename(ofile)
-            suite = fname.rsplit('.', 2)[0]
+            # The files will be named something like:
+            #     basic.js.out
+            # We want to strip the ".js.out" part off, and turn any other dots
+            # into underscores so we have a nice, clean suite name and upload
+            # filename to use. We only split twice, because IPC/e10s tests will
+            # be named something like:
+            #     basic.ipc.js.out
+            # and we want to keep the "ipc" portion in there.
+            suite = fname.rsplit('.', 2)[0].replace('.', '_')
             results['testrun']['suite'] = suite
             ldap = stoneridge.get_config('run', 'ldap')
             if ldap is None:
