@@ -55,7 +55,10 @@ _args, _ = _parser.parse_known_args()
 if _args.log:
     _logger = logging.getLogger()
     _logger.setLevel(logging.DEBUG)
-    _handler = logging.FileHandler(_args.log)
+    if _args.log in ('stdout', 'stderr', '-'):
+        _handler = logging.StreamHandler(sys.stderr)
+    else:
+        _handler = logging.FileHandler(_args.log)
     _formatter = logging.Formatter(fmt=LOG_FMT)
     _handler.setFormatter(_formatter)
     _logger.addHandler(_handler)
