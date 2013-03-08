@@ -96,14 +96,17 @@ class StoneRidgeRunner(object):
                 '-e', 'const _SR_OUT_SUBDIR = "%s";' % (escape(outdir),),
                 '-e', 'const _SR_OUT_FILE = "%s";' % (outfile,),
                 '-e', 'const _SR_HEAD_JS = "%s";' % (escape(head_path),),
-                '-e', 'const _SR_TEST_JS = "%s";' % (escape(test_path),)
             ]
             if test_path.endswith('.ipc.js'):
                 test_bits = test_path.rsplit('.', 2)
                 real_test_path = '.'.join([test_bits[0], test_bits[2]])
                 args += [
-                    '-e', 'const _SR_IPC_TEST_JS = "%s";' %
+                    '-e', 'const _SR_TEST_JS = "%s";' %
                     (escape(real_test_path),)
+                ]
+            else:
+                args += [
+                    '-e', 'const _SR_TEST_JS = "%s";' % (escape(test_path),)
                 ]
             args += [
                 '-f', head_path,

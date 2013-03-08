@@ -115,11 +115,11 @@ function run_test_in_child() {
         return path.replace(/\\/g, "\\\\");
     };
     sendCommand("const _SR_HEAD_JS='" + pescape(_SR_HEAD_JS) + "';" +
-                "const _SR_IPC_TEST_JS='" + pescape(_SR_IPC_TEST_JS) + "';" +
+                "const _SR_TEST_JS='" + pescape(_SR_TEST_JS) + "';" +
                 "const _SR_OUT_SUBDIR='" + pescape(_SR_OUT_SUBDIR) + "';" +
                 "const _SR_OUT_FILE='" + pescape(_SR_OUT_FILE) + "';" +
                 "load(_SR_HEAD_JS);" +
-                "load(_SR_IPC_TEST_JS);");
+                "load(_SR_TEST_JS);");
   }
 
   sendCommand("do_stoneridge();", do_ipc_test_finish);
