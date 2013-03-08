@@ -3,7 +3,6 @@
 # v. 2.0. If a copy of the MPL was not distributed with this file, You can
 # obtain one at http://mozilla.org/MPL/2.0/.
 
-import argparse
 import base64
 import dzclient
 import json
@@ -12,6 +11,20 @@ import os
 import time
 
 import stoneridge
+
+
+EMAIL_MESSAGE = '''Hello, %s!
+
+Your stone ridge test has completed its run. Your results are attached.
+For your reference, here's the details about this particular run:
+
+    ID: %s
+    Operating System: %s
+    Network Configuration: %s
+
+Enjoy!
+-The Stone Ridge System
+'''
 
 
 class StoneRidgeReporter(stoneridge.QueueListener):
@@ -31,7 +44,7 @@ class StoneRidgeReporter(stoneridge.QueueListener):
         logging.debug('unittest: %s' % (self.unittest,))
 
     def save_data(self, srid, netconfig, operating_system, results,
-            metadata_b64):
+                  metadata_b64, ldap):
         dirname = '%s_%s_%s' % (srid, netconfig, operating_system)
         archivedir = os.path.join(self.archives, dirname)
         if os.path.exists(archivedir):
@@ -49,38 +62,58 @@ class StoneRidgeReporter(stoneridge.QueueListener):
         with file(metadata_file, 'wb') as f:
             f.write(metadata)
 
-    def handle(self, srid, netconfig, operating_system, results, metadata):
+        if ldap is not None:
+            msg_text = EMAIL_MESSAGE % (ldap, srid, operating_system,
+                                        netconfig)
+            stoneridge.sendmail(ldap, 'Stone Ridge Complete',
+                                msg_text, (metadata_file, 'results.zip'))
+
+    def handle(self, srid, netconfig, operating_system, results, metadata,
+               ldap):
         logging.debug('uploading results for %s' % (srid,))
 
         for name in results:
             dataset = results[name]
             if not isinstance(dataset, dict):
                 # This one is crap, ignore it
-                logging.error('bad json: %s' % (contents,))
+                logging.error('bad json: %s' % (results[name],))
                 continue
 
             if self.unittest:
                 logging.debug('would upload data via https to %s, project %s' %
-                        (self.host, self.project))
+                              (self.host, self.project))
                 logging.debug('dataset: %s' % (dataset,))
             else:
                 logging.debug('uploading data')
                 request = dzclient.DatazillaRequest('https', self.host,
-                        self.project, self.key, self.secret)
+                                                    self.project, self.key,
+                                                    self.secret)
                 response = request.send(dataset)
                 logging.debug('got status code %s' % (response.status,))
                 if response.status != 200:
-                    logging.error('bad http status %s for %s' % (response.status, srid))
+                    logging.error('bad http status %s for %s' %
+                                  (response.status, srid))
 
                 try:
-                    result = json.load(response)
+                    response_text = response.read()
                 except:
-                    result = ''
+                    logging.exception('Error reading response')
+                    continue
+
+                try:
+                    result = json.loads(response_text)
+                except:
+                    logging.exception('Error loading resposne %s' %
+                                      (response_text,))
+                    continue
+
                 logging.debug('got result %s' % (result,))
                 if result['status'] != 'well-formed JSON stored':
-                    logging.error('bad status for %s: %s' % (srid, result['status']))
+                    logging.error('bad status for %s: %s' %
+                                  (srid, result['status']))
 
-        self.save_data(srid, netconfig, operating_system, results, metadata)
+        self.save_data(srid, netconfig, operating_system, results, metadata,
+                       ldap)
 
 
 def daemon():
@@ -91,6 +124,6 @@ def daemon():
 @stoneridge.main
 def main():
     parser = stoneridge.DaemonArgumentParser()
-    args = parser.parse_args()
+    parser.parse_args()
 
     parser.start_daemon(daemon)

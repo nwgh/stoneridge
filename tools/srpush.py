@@ -44,7 +44,7 @@ def read_config_element(cp, option):
     try:
         val = cp.get('srpush', option)
         return val
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+    except (configparser.NoSectionError, configparser.NoOptionError):
         return None
 
 
@@ -63,7 +63,8 @@ def get_config_from_user(cp, missing_options):
     """
     new_options = {}
 
-    sys.stdout.write('Some configuration options are missing. Please fill them in here.\n')
+    sys.stdout.write('Some configuration options are missing. Please fill '
+                     'them in here.\n')
     for option in missing_options:
         new_options[option] = raw_input('%s: ' % (option,)).strip()
         write_config_element(cp, option, new_options[option])
@@ -128,13 +129,17 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--config', dest='config', default=default_config,
-            help='Path to configuration file')
+                        help='Path to configuration file')
     parser.add_argument('--netconfig', dest='netconfigs',
-            choices=('broadband', 'umts', 'gsm', 'all'), required=True,
-            help='Netconfigs to run tests against', action='append')
+                        choices=('broadband', 'umts', 'gsm', 'all'),
+                        required=True,
+                        help='Netconfigs to run tests against',
+                        action='append')
     parser.add_argument('--os', dest='operating_systems',
-            choices=('windows', 'mac', 'linux', 'all'), required=True,
-            help='Operating systems to run tests on', action='append')
+                        choices=('win32', 'macosx64', 'linux64', 'all'),
+                        required=True,
+                        help='Operating systems to run tests on',
+                        action='append')
     parser.add_argument('sha', default=None,  help='SHA of try run to push')
     args = parser.parse_args()
 
@@ -179,10 +184,13 @@ if __name__ == '__main__':
     if 'all' in args.operating_systems:
         operating_systems = ['windows', 'mac', 'linux']
     else:
-        operating_systems = args.operating_systems
+        operating_systems = [{'win32': 'windows',
+                              'macosx64': 'mac',
+                              'linux64': 'linux'}[o]
+                             for o in args.operating_systems]
 
     srid = srpush(args.sha, host, ldap, password, netconfigs,
-            operating_systems)
+                  operating_systems)
 
     sys.stdout.write('Push succeeded. Run ID is %s\n' % (srid,))
 

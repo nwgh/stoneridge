@@ -15,14 +15,15 @@ class StoneRidgeScheduler(stoneridge.QueueListener):
 
         self.runners = {
             'linux': stoneridge.RpcCaller(stoneridge.CLIENT_QUEUES['linux'],
-                self.rpc_queue),
+                                          self.rpc_queue),
             'mac': stoneridge.RpcCaller(stoneridge.CLIENT_QUEUES['mac'],
-                self.rpc_queue),
-            'windows': stoneridge.RpcCaller(stoneridge.CLIENT_QUEUES['windows'],
+                                        self.rpc_queue),
+            'windows': stoneridge.RpcCaller(
+                stoneridge.CLIENT_QUEUES['windows'],
                 self.rpc_queue)
         }
 
-    def handle(self, srid, operating_systems, tstamp):
+    def handle(self, srid, operating_systems, tstamp, ldap):
         for o in operating_systems:
             runner = self.runners.get(o, None)
             if runner is None:
@@ -36,14 +37,15 @@ class StoneRidgeScheduler(stoneridge.QueueListener):
                 logging.debug('Run of %s on %s succeeded' % (srid, o))
             else:
                 logging.error('Run of %s on %s failed: %s' % (srid, o,
-                    res['msg']))
+                              res['msg']))
 
 
 def daemon(netconfig):
     queues = stoneridge.NETCONFIG_QUEUES[netconfig]
 
-    scheduler = StoneRidgeScheduler(queues['incoming'], rpc_queue=queues['rpc'],
-            netconfig=netconfig)
+    scheduler = StoneRidgeScheduler(queues['incoming'],
+                                    rpc_queue=queues['rpc'],
+                                    netconfig=netconfig)
     scheduler.run()
 
 
@@ -51,7 +53,7 @@ def daemon(netconfig):
 def main():
     parser = stoneridge.DaemonArgumentParser()
     parser.add_argument('--netconfig', dest='netconfig',
-            choices=stoneridge.NETCONFIGS, required=True)
+                        choices=stoneridge.NETCONFIGS, required=True)
     args = parser.parse_args()
 
     parser.start_daemon(daemon, netconfig=args.netconfig)

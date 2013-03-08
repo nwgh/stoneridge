@@ -3,16 +3,12 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>org.mozilla.srcleaner</string>
+    <string>org.mozilla.srarp</string>
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/python</string>
-        <string>/Users/hurley/srhome/stoneridge/srcleaner.py</string>
-        <string>--config</string>
-        <string>/Users/hurley/srhome/stoneridge.ini</string>
-        <string>--nodaemon</string>
-        <string>--log</string>
-        <string>/Users/hurley/srhome/srcleaner.log</string>
+        <string>/bin/sh</string>
+        <string>-c</string>
+        <string>/usr/sbin/arp -f /Users/hurley/srhome/stoneridge/osx/arp.txt; while /usr/bin/true; do sleep 30; done</string>
     </array>
     <key>KeepAlive</key>
     <true/>

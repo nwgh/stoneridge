@@ -5,14 +5,18 @@
 import argparse
 import ConfigParser
 import copy
+import email
 import inspect
 import json
 import logging
 import os
 import platform
+import requests
 import signal
+import smtplib
 import subprocess
 import sys
+import time
 import traceback
 
 import pika
@@ -56,13 +60,16 @@ if _args.log:
     _handler.setFormatter(_formatter)
     _logger.addHandler(_handler)
 
+
 def log(msg):
     if _args.log:
         logging.debug(msg)
 
+
 def log_exc(msg):
     if _args.log:
         logging.exception(msg)
+
 
 def main(_main):
     """Mark a function as the main function to run when run as a script.
@@ -78,7 +85,7 @@ def main(_main):
         except Exception as e:
             log_exc('EXCEPTION')
             traceback.print_exception(type(e), e, sys.exc_info()[2], None,
-                    sys.stderr)
+                                      sys.stderr)
             sys.exit(1)
         log('FINISHED')
         sys.exit(0)
@@ -94,7 +101,7 @@ class cwd(object):
         self.newcwd = dirname
         self.oldcwd = os.getcwd()
         logging.debug('creating cwd object with newcwd %s and oldcwd %s' %
-                (self.newcwd, self.oldcwd))
+                      (self.newcwd, self.oldcwd))
 
     def __enter__(self):
         logging.debug('changing cwd to %s' % (self.newcwd,))
@@ -103,6 +110,46 @@ class cwd(object):
     def __exit__(self, *args):
         logging.debug('returning cwd to %s' % (self.oldcwd,))
         os.chdir(self.oldcwd)
+
+
+class Process(subprocess.Popen):
+    """A subclass of subprocess.Popen that does the right things by default for
+    capturing stdout and stderr from programs run as part of stone ridge.
+    """
+    def __init__(self, args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                 **kwargs):
+        kwargs['universal_newlines'] = True
+        subprocess.Popen.__init__(self, args, stdout=stdout, stderr=stderr,
+                                  **kwargs)
+
+
+class StreamLogger(object):
+    """Redirect a stream to a logger
+    """
+    def __init__(self, logger):
+        self.logger = logger
+
+    def write(self, buf):
+        for line in buf.rstrip().splitlines():
+            self.logger.log(logging.DEBUG, line.rstrip())
+
+    @staticmethod
+    def bottle_inject():
+        """Do some nasty hackery to make sure everything bottle prints goes to
+        our log, too.
+        """
+        # We do the import here, because we don't want to import bottle into
+        # the stoneridge namespace unless the process is already using bottle,
+        # which will be evident by the fact that it's asking us to inject this
+        # stream logger into bottle!
+        import bottle
+        streamlogger = StreamLogger(logging.getLogger())
+
+        # Redirecting sys.stdout and sys.stderr is ok, because anything that
+        # calls this is a daemon process that shouldn't be printing anything
+        # to the console, anyway.
+        sys.stdout = sys.stderr = streamlogger
+        bottle._stdout = bottle._stderr = streamlogger.write
 
 
 _cp = None
@@ -119,7 +166,7 @@ def get_config(section, option, default=None):
     """
     global _cp
 
-    logging.debug('reading %s.%s (default %s)' %  (section, option, default))
+    logging.debug('reading %s.%s (default %s)' % (section, option, default))
 
     if _cp is None:
         _cp = ConfigParser.SafeConfigParser()
@@ -136,9 +183,9 @@ def get_config(section, option, default=None):
         val = _cp.get(section, option)
         logging.debug('found %s.%s, returning %s' % (section, option, val))
         return val
-    except (ConfigParser.NoSectionError, ConfigParser.NoOptionError) as e:
+    except (ConfigParser.NoSectionError, ConfigParser.NoOptionError):
         logging.debug('unable to find %s.%s, returning default %s' %
-                (section, option, default))
+                      (section, option, default))
         return default
 
 
@@ -150,7 +197,7 @@ def get_config_int(section, option, default=0):
         return int(value)
     except ValueError:
         logging.debug('invalid int value %s, returning default %s' %
-                (value, default))
+                      (value, default))
         return default
 
 
@@ -169,6 +216,15 @@ def get_config_bool(section, option):
             value = False
 
     return value
+
+
+class XpcshellTimeout(Exception):
+    def __init__(self, timeout_secs, xpcshell_stdout):
+        self.timeout_secs = timeout_secs
+        self.xpcshell_output_fd = xpcshell_stdout
+        Exception.__init__(self,
+                           'Killed xpcshell after %s seconds' %
+                           (timeout_secs,))
 
 
 _xpcshell = None
@@ -203,11 +259,21 @@ def run_xpcshell(args, stdout=subprocess.PIPE):
 
     xpcargs = [_xpcshell] + args
     logging.debug('Running xpcshell: %s' % (xpcargs,))
-    proc = subprocess.Popen(xpcargs, stdout=stdout,
-            stderr=subprocess.STDOUT, cwd=bindir,
-            env=_xpcshell_environ)
-    res = proc.wait()
-    return (res, proc.stdout)
+
+    xpcshell_timeout = get_config_int('xpcshell', 'timeout')
+    xpcshell_start = int(time.time())
+
+    proc = Process(xpcargs, stdout=stdout, cwd=bindir, env=_xpcshell_environ)
+
+    while (int(time.time()) - xpcshell_start) < xpcshell_timeout:
+        time.sleep(5)
+
+        if proc.poll() is not None:
+            return (proc.returncode, proc.stdout)
+
+    # If we get here, that means we hit the timeout
+    proc.kill()
+    raise XpcshellTimeout(xpcshell_timeout, proc.stdout)
 
 
 _os_version = None
@@ -233,16 +299,16 @@ def get_os_version():
 
 
 _netconfig_ids = {
-    'broadband':'0',
-    'umts':'1',
-    'gsm':'2',
+    'broadband': '0',
+    'umts': '1',
+    'gsm': '2',
 }
 
 
 _os_ids = {
-    'windows':'w',
-    'linux':'l',
-    'mac':'m',
+    'windows': 'w',
+    'linux': 'l',
+    'mac': 'm',
 }
 
 
@@ -282,13 +348,13 @@ def run_process(procname, *args, **kwargs):
     logger.debug(' '.join(command))
     try:
         proc_stdout = subprocess.check_output(command,
-                stderr=subprocess.STDOUT)
+                                              stderr=subprocess.STDOUT)
         logger.debug(proc_stdout)
         logger.debug('SUCCEEDED: %s' % (procname,))
     except subprocess.CalledProcessError as e:
         logger.error('FAILED: %s (%s)' % (procname, e.returncode))
         logger.error(e.output)
-        raise # Do this in case caller has any special handling
+        raise  # Do this in case caller has any special handling
 
 
 class ArgumentParser(argparse.ArgumentParser):
@@ -299,9 +365,9 @@ class ArgumentParser(argparse.ArgumentParser):
         argparse.ArgumentParser.__init__(self, **kwargs)
 
         self.add_argument('--config', dest='_sr_config_', required=True,
-                help='Configuration file')
-        self.add_argument('--log', dest='_sr_log_', default=None, required=True,
-                help='File to place log info in')
+                          help='Configuration file')
+        self.add_argument('--log', dest='_sr_log_', default=None,
+                          required=True, help='File to place log info in')
 
     def parse_args(self, **kwargs):
         global _srconf
@@ -389,7 +455,7 @@ def daemonize(pidfile, function, **kwargs):
 
     with file(pidfile, 'w') as f:
         logging.debug('locking %s' % (pidfile,))
-        fcntl.lockf(f, fcntl.LOCK_EX|fcntl.LOCK_NB)
+        fcntl.lockf(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
         logging.debug('writing pid')
         f.write('%s' % (os.getpid(),))
@@ -458,7 +524,7 @@ class TestRunArgumentParser(ArgumentParser):
         ArgumentParser.__init__(self, **kwargs)
 
         self.add_argument('--runconfig', dest='_sr_runconfig_', required=True,
-                help='Run-specific configuration file')
+                          help='Run-specific configuration file')
 
     def parse_args(self, **kwargs):
         global _runconf
@@ -480,6 +546,7 @@ class QueueListener(object):
         self._queue = queue
         self._params = pika.ConnectionParameters(host=self._host)
         self._args = kwargs
+        self._connection = None
         self.setup(**kwargs)
 
     def setup(self, **kwargs):
@@ -503,6 +570,15 @@ class QueueListener(object):
         self.handle(**msg)
         channel.basic_ack(delivery_tag=method.delivery_tag)
 
+    def _handle_onclose(self, method_frame):
+        """Handle the case when our connection drops out from under us, for
+        whatever reason, by re-connecting (and trying to do so indefinitely).
+        """
+        logging.debug('Got close on channel, retrying')
+        self._connection.close()
+        self._connection = None
+        self.run()
+
     def run(self):
         """Main event loop for a queue listener.
         """
@@ -510,8 +586,9 @@ class QueueListener(object):
         if self._queue is None:
             raise Exception('You must set queue for %s' % (type(self),))
 
-        connection = pika.BlockingConnection(self._params)
-        channel = connection.channel()
+        self._connection = pika.BlockingConnection(self._params)
+        channel = self._connection.channel()
+        channel.add_on_close_callback(self._handle_onclose)
 
         channel.basic_qos(prefetch_count=1)
         channel.basic_consume(self._handle, queue=self._queue)
@@ -535,16 +612,17 @@ class QueueWriter(object):
         channel = connection.channel()
 
         body = json.dumps(msg)
+        properties = pika.BasicProperties(delivery_mode=2)  # Durable
         channel.basic_publish(exchange='', routing_key=self._queue, body=body,
-                properties=pika.BasicProperties(delivery_mode=2)) # Durable
-        connection.close() # Ensures the message is sent
+                              properties=properties)
+        connection.close()  # Ensures the message is sent
 
 
 def enqueue(nightly=True, ldap='', sha='', netconfigs=None,
-        operating_systems=None, srid=None, attempt=1):
-    """Convenience function to kick off a test run. If called with no arguments,
-    this will kick off a run for all operating systems with all netconfigs
-    against the latest nightly build.
+            operating_systems=None, srid=None, attempt=1):
+    """Convenience function to kick off a test run. If called with no
+    arguments, this will kick off a run for all operating systems with all
+    netconfigs against the latest nightly build.
     """
     if not netconfigs:
         netconfigs = _netconfig_ids.keys()
@@ -569,7 +647,8 @@ def enqueue(nightly=True, ldap='', sha='', netconfigs=None,
 
     writer = QueueWriter(INCOMING_QUEUE)
     writer.enqueue(nightly=nightly, ldap=ldap, sha=sha, netconfigs=netconfigs,
-            operating_systems=operating_systems, srid=srid, attempt=attempt)
+                   operating_systems=operating_systems, srid=srid,
+                   attempt=attempt)
 
 
 class RpcCaller(object):
@@ -611,15 +690,15 @@ class RpcCaller(object):
 
         # Send out our RPC request.
         properties = pika.BasicProperties(reply_to=self._incoming_queue,
-                correlation_id=self._srid)
+                                          correlation_id=self._srid)
         body = json.dumps(msg)
         channel.basic_publish(exchange='',
-                routing_key=self._outgoing_queue, body=body,
-                properties=properties)
+                              routing_key=self._outgoing_queue, body=body,
+                              properties=properties)
 
         # Now start waiting on an answer from the RPC handler.
         channel.basic_consume(self._on_rpc_done, no_ack=True,
-                queue=self._incoming_queue)
+                              queue=self._incoming_queue)
 
         while self._response is None:
             connection.process_data_events()
@@ -656,8 +735,66 @@ class RpcHandler(QueueListener):
         logging.debug('Returning to %s' % (properties.reply_to,))
         logging.debug('Returning for %s' % (properties.correlation_id,))
         res_properties = pika.BasicProperties(
-                correlation_id=properties.correlation_id)
+            correlation_id=properties.correlation_id)
         channel.basic_publish(exchange='', routing_key=properties.reply_to,
-                properties=res_properties, body=body)
+                              properties=res_properties, body=body)
 
         channel.basic_ack(delivery_tag=method.delivery_tag)
+
+
+def sendmail(to, subject, message, *attachments):
+    """Send an email, with optional attachments
+
+    to - email address to send the email to
+    subject - subject of the email
+    message - body text of the email
+    attachments - optional (path, name) tuples, where <path> is the path to
+                  the file to be attached on disk, and <name> is the name to
+                  be used as the attachment's name in the email.
+    """
+    msg = email.MIMEMultipart.MIMEMultipart()
+    msg['from'] = 'stoneridge@noreply.mozilla.com'
+    msg['to'] = to
+    msg['date'] = email.Utils.formatdate()
+    msg['subject'] = subject
+
+    # Create the main part that displays
+    msg.attach(email.MIMEText.MIMEText(message))
+
+    # Add the attachments as base64-encoded application/octet-stream parts
+    for fpath, fname in attachments:
+        mpart = email.MIMEBase.MIMEBase('application', 'octet-stream')
+        with file(fpath, 'rb') as f:
+            mpart.set_payload(f.read())
+        email.Encoders.encode_base64(mpart)
+        mpart.add_header('Content-Disposition',
+                         'attachment; filename=%s' % (fname,))
+        msg.attach(mpart)
+
+    # And now we can actuall send the email
+    smtp = smtplib.SMTP('localhost')
+    smtp.sendmail('stoneridge@noreply.mozilla.com', [to],
+                  msg.as_string())
+    smtp.close()
+
+
+_mailurl = None
+
+
+def mail(to, subject, message):
+    """Like sendmail, but for clients (which don't run an smtpd) to use.
+    """
+    global _mailurl
+
+    if _mailurl is None:
+        _mailurl = get_config('stoneridge', 'mailurl')
+
+    logging.debug('to: %s' % (to,))
+    logging.debug('subject: %s' % (subject,))
+    logging.debug('message: %s' % (message,))
+
+    requests.post(_mailurl, data={'to': to,
+                                  'subject': subject,
+                                  'message': message})
+
+    logging.debug('mail sent')

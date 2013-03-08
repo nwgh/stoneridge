@@ -6,7 +6,6 @@
 import logging
 import os
 import subprocess
-import tempfile
 
 import stoneridge
 
@@ -23,10 +22,10 @@ class StoneRidgeWorker(stoneridge.QueueListener):
         logging.debug('srconffile: %s' % (self.srconffile,))
         logging.debug('unittest: %s' % (self.unittest,))
 
-        self.runconfig = None # Needs to be here so reset doesn't barf
+        self.runconfig = None  # Needs to be here so reset doesn't barf
         self.reset()
 
-    def handle(self, srid, netconfig, tstamp):
+    def handle(self, srid, netconfig, tstamp, ldap):
         # Create the directory where data we want to save from this run will go
         srwork = os.path.join(self.workroot, srid, netconfig)
         if os.path.exists(srwork):
@@ -61,6 +60,7 @@ class StoneRidgeWorker(stoneridge.QueueListener):
         self.archive_on_failure = True
         self.procno = 1
         self.childlog = None
+        self.need_dns_reset = False
 
         self.runconfig = os.path.join(srout, 'run.ini')
         with file(self.runconfig, 'w') as f:
@@ -74,14 +74,18 @@ class StoneRidgeWorker(stoneridge.QueueListener):
             f.write('info = %s\n' % (info,))
             f.write('tstamp = %s\n' % (tstamp,))
             f.write('srid = %s\n' % (srid,))
+            if ldap:
+                f.write('ldap = %s\n' % (ldap,))
 
         self.logger.debug('srnetconfig: %s' % (self.srnetconfig,))
         self.logger.debug('uploaded: %s' % (self.uploaded,))
-        self.logger.debug('archive on failure: %s' % (self.archive_on_failure,))
+        self.logger.debug('archive on failure: %s' %
+                          (self.archive_on_failure,))
         self.logger.debug('procno: %s' % (self.procno,))
         self.logger.debug('childlog: %s' % (self.childlog,))
         self.logger.debug('logdir: %s' % (self.logdir,))
         self.logger.debug('runconfig: %s' % (self.runconfig,))
+        self.logger.debug('ldap: %s' % (ldap,))
 
         res = {'ok': True}
 
@@ -113,8 +117,8 @@ class StoneRidgeWorker(stoneridge.QueueListener):
         top level
         """
         self.logger.error('Error exit during %s' % (stage,))
-        raise StoneRidgeException('Error running %s: see %s\n' % (stage,
-            self.childlog))
+        raise StoneRidgeException('Error running %s: see %s\n' %
+                                  (stage, self.childlog))
 
     def run_process(self, stage, *args):
         """Run a particular subprocess with the default arguments, as well as
@@ -122,7 +126,7 @@ class StoneRidgeWorker(stoneridge.QueueListener):
         """
         script = 'sr%s.py' % (stage,)
         logfile = os.path.join(self.logdir, '%02d_%s_%s.log' %
-                (self.procno, stage, self.srnetconfig))
+                               (self.procno, stage, self.srnetconfig))
         self.procno += 1
 
         command = [script,
@@ -138,18 +142,40 @@ class StoneRidgeWorker(stoneridge.QueueListener):
 
         try:
             stoneridge.run_process(*command, logger=self.logger)
-        except subprocess.CalledProcessError as e:
+        except subprocess.CalledProcessError:
             # The process failed to run correctly, we need to say so
             self.childlog = logfile
 
+            if self.need_dns_reset:
+                # We were in the midst of having our dns all screwy, so we
+                # need to try our best to fix that. Let's hope it works!
+
+                # First of all, we don't want to archive or upload during
+                # the process of running the dns updater.
+                do_archive = self.archive_on_failure
+                self.archive_on_failure = False
+
+                uploaded = self.uploaded
+                self.uploaded = True
+
+                try:
+                    self.run_process('dnsupdater', '--restore')
+                except StoneRidgeException:
+                    logging.error('Was unable to reset DNS after failure')
+
+                # Reset this state back to where it was previously so the rest
+                # of this block can work as expected.
+                self.archive_on_failure = do_archive
+                self.uploaded = uploaded
+
             if self.archive_on_failure:
                 # We've reached the point in our run where we have something to
-                # save off for usage. Archive it, but don't try to archive again
-                # if for some reason the archival process fails :)
+                # save off for usage. Archive it, but don't try to archive
+                # again if for some reason the archival process fails :)
                 self.archive_on_failure = False
                 try:
                     self.run_process('archiver')
-                except StoneRidgeException as e:
+                except StoneRidgeException:
                     pass
             if not self.uploaded:
                 self.uploaded = True
@@ -168,11 +194,25 @@ class StoneRidgeWorker(stoneridge.QueueListener):
 
         self.run_process('infogatherer')
 
+        self.run_process('pcap', '--start')
+
         self.run_process('dnsupdater')
+
+        self.need_dns_reset = True
+
+        self.run_process('dnscheck')
+
+        self.run_process('arpfixer')
 
         self.run_process('runner')
 
+        self.need_dns_reset = False
+
         self.run_process('dnsupdater', '--restore')
+
+        self.run_process('dnscheck', '--public')
+
+        self.run_process('pcap', '--stop')
 
         self.run_process('collator')
 
@@ -196,6 +236,6 @@ def daemon():
 @stoneridge.main
 def main():
     parser = stoneridge.DaemonArgumentParser()
-    args = parser.parse_args()
+    parser.parse_args()
 
     parser.start_daemon(daemon)

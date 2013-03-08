@@ -6,7 +6,6 @@
 import glob
 import logging
 import os
-import subprocess
 
 import stoneridge
 
@@ -36,7 +35,7 @@ class StoneRidgeRunner(object):
         """
         if not self.tests:
             logging.debug('searching for all tests in %s' %
-                    (self.testroot,))
+                          (self.testroot,))
             if stoneridge.get_config('test', 'enabled'):
                 tests = ['fake.js']
             else:
@@ -97,28 +96,21 @@ class StoneRidgeRunner(object):
                 '-e', 'do_stoneridge(); quit(0);'
             ]
             logging.debug('xpcshell args: %s' % (args,))
-            tcpdump_output = os.path.join(outdir, 'traffic.pcap')
-            logging.debug('tcpdump capture at %s' % (tcpdump_output,))
-            tcpdump_exe = stoneridge.get_config('tcpdump', 'exe')
-            logging.debug('tcpdump exe %s' % (tcpdump_exe,))
-            tcpdump_if = stoneridge.get_config('tcpdump', 'interface')
-            logging.debug('tcpdump interface %s' % (tcpdump_if,))
-            tcpdump = None
             if self.unittest:
                 logging.debug('Not running processes: in unit test mode')
             else:
-                if tcpdump_exe and tcpdump_if:
-                    tcpdump = subprocess.Popen([tcpdump_exe, '-s', '2000', '-U',
-                                                '-p', '-w', tcpdump_output,
-                                                '-i', tcpdump_if],
-                                               stdout=subprocess.PIPE,
-                                               stderr=subprocess.STDOUT)
-                res, xpcshell_out = stoneridge.run_xpcshell(args)
-                if tcpdump:
-                    tcpdump.terminate()
-                    logging.debug('tcpdump output\n%s' % (tcpdump.stdout.read(),))
-                logging.debug('xpcshell output\n%s' % (xpcshell_out.read(),))
-                if res:
+                xpcshell_out_file = '%s.xpcshell.out' % (test,)
+                xpcshell_out_file = os.path.join(outdir, xpcshell_out_file)
+                logging.debug('xpcshell output at %s' % (xpcshell_out_file,))
+                timed_out = False
+                with file(xpcshell_out_file, 'wb') as f:
+                    try:
+                        res, _ = stoneridge.run_xpcshell(args, stdout=f)
+                    except stoneridge.XpcshellTimeout:
+                        logging.exception('xpcshell timed out!')
+                        timed_out = True
+                        res = None
+                if res or timed_out:
                     logging.error('TEST FAILED: %s' % (test,))
                 else:
                     logging.debug('test succeeded')
@@ -128,10 +120,11 @@ class StoneRidgeRunner(object):
 def main():
     parser = stoneridge.TestRunArgumentParser()
     parser.add_argument('--head', dest='heads', action='append',
-            metavar='HEADFILE',
-            help='Extra head.js file to append (can be used more than once)')
+                        metavar='HEADFILE',
+                        help='Extra head.js file to append (can be used more '
+                             'than once)')
     parser.add_argument('tests', nargs='*', metavar='TEST',
-            help='Name of single test file to run')
+                        help='Name of single test file to run')
 
     args = parser.parse_args()
 
