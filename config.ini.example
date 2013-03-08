@@ -2,6 +2,9 @@
 # The directory where stone ridge is installed
 root = /Users/hurley/src/stoneridge
 
+# Where pid files and such should go
+run = /Users/hurley/src/stoneridge/testroot/run
+
 # Where processes should store their logs
 logs = /Users/hurley/src/stoneridge/testroot/logs
 
@@ -16,6 +19,9 @@ archives = /Users/hurley/src/stoneridge/testroot/archives
 
 # The host running RabbitMQ for us
 mqhost = localhost
+
+# The URL for clients to post emails to for sending
+mailurl = http://stone-ridge-linux1.dmz.scl3.mozilla.com:2255/email
 
 # True if we're running in unit test mode, missing or false otherwise
 unittest = true
@@ -110,6 +116,9 @@ firefox_path = FirefoxNightly.app/Contents/MacOS
 # for windows
 xpcshell = xpcshell
 
+# The MAC address of the interface that we want to dump traffic on
+macaddr = 00:00:00:00:00:00
+
 [tcpdump]
 # The full path to the tcpdump executable
 exe = /usr/sbin/tcpdump
@@ -117,3 +126,8 @@ exe = /usr/sbin/tcpdump
 # The network inteface to tcpdump on (this is the network interface that is
 # connected to the test network)
 interface = lo0
+
+# These are the hosts that take care of running tcpdump for the clients
+broadband = stone-ridge-linux1.dmz.scl3.mozilla.com:7227
+umts = stone-ridge-linux2.dmz.scl3.mozilla.com:7227
+gsm = stone-ridge-linux3.dmz.scl3.mozilla.com:7227
