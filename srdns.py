@@ -15,7 +15,7 @@ import stoneridge
 
 
 dnspat = re.compile('^[0-9]+ : ([0-9.]+)$')
-rundir = stoneridge.get_config('stoneridge', 'run')
+rundir = None
 nochange = False
 winreg = None
 
@@ -288,8 +288,6 @@ def daemon():
     except KeyboardInterrupt:
         pass
 
-    shutil.rmtree(rundir)
-
 
 @stoneridge.main
 def main():
@@ -299,5 +297,8 @@ def main():
 
     global nochange
     nochange = args.nochange
+
+    global rundir
+    rundir = stoneridge.get_config('stoneridge', 'run')
 
     parser.start_daemon(daemon)
