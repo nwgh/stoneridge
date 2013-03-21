@@ -37,11 +37,20 @@ class StoneRidgeRunner(object):
             logging.debug('searching for all tests in %s' %
                           (self.testroot,))
             if stoneridge.get_config('test', 'enabled'):
-                tests = ['fake.js']
+                tests = []
+                if os.path.exists(os.path.join(self.testroot, 'fake.js')):
+                    tests.append('fake.js')
             else:
-                tests = [os.path.basename(f) for f in
-                         glob.glob(os.path.join(self.testroot, '*.js'))]
-                tests.remove('fake.js')
+                jstests = [os.path.basename(f) for f in
+                           glob.glob(os.path.join(self.testroot, '*.js'))]
+                try:
+                    jstests.remove('fake.js')
+                except ValueError:
+                    # Don't care if fake.js isn't in the list
+                    pass
+                pagetests = [os.path.basename(f) for f in
+                             glob.glob(os.path.join(self.testroot, '*.page'))]
+                tests = jstests + pagetests
             logging.debug('tests found %s' % (tests,))
             return tests
 
@@ -89,43 +98,59 @@ class StoneRidgeRunner(object):
 
         for test in tests:
             logging.debug('test: %s' % (test,))
-            outfile = '%s.out' % (test,)
+            outfile = os.path.join(outdir, '%s.out' % (test,))
             logging.debug('outfile: %s' % (outfile,))
             test_path = os.path.join(self.testroot, test)
-            args = preargs + [
-                '-e', 'const _SR_OUT_SUBDIR = "%s";' % (escape(outdir),),
-                '-e', 'const _SR_OUT_FILE = "%s";' % (outfile,),
-                '-e', 'const _SR_HEAD_JS = "%s";' % (escape(head_path),),
-            ]
-            if test_path.endswith('.ipc.js'):
-                test_bits = test_path.rsplit('.', 2)
-                real_test_path = '.'.join([test_bits[0], test_bits[2]])
-                args += [
-                    '-e', 'const _SR_TEST_JS = "%s";' %
-                    (escape(real_test_path),)
+            if test.endswith('.js'):
+                escaped_outfile = outfile.replace('\\', '\\\\')
+                args = preargs + [
+                    '-e', 'const _SR_OUT_FILE = "%s";' % (escaped_outfile,),
+                    '-e', 'const _SR_HEAD_JS = "%s";' % (escape(head_path)),
                 ]
+                if test_path.endswith('.ipc.js'):
+                    test_bits = test_path.rsplit('.', 2)
+                    real_test_path = '.'.join([test_bits[0], test_bits[2]])
+                    args += [
+                        '-e', 'const _SR_TEST_JS = "%s";' %
+                        (escape(real_test_path),)
+                    ]
+                else:
+                    args += [
+                        '-e', 'const _SR_TEST_JS = "%s";' % (escape(test_path),)
+                    ]
+
+                args += [
+                    '-f', os.path.join(installroot, 'srdata.js'),
+                    '-f', head_path,
+                    '-f', test_path,
+                    '-e', 'do_stoneridge(); quit(0);'
+                ]
+                logging.debug('xpcshell args: %s' % (args,))
+                runner = stoneridge.run_xpcshell
             else:
-                args += [
-                    '-e', 'const _SR_TEST_JS = "%s";' % (escape(test_path),)
+                args = [
+                    '-sr', test_path,
+                    '-sroutput', outfile,
+                    # -srwidth, <some width value>,
+                    # -srheight, <some height value>,
+                    # -srtimeout, <some timeout value per page>,
+                    # -srdelay, <some delay value between pages>,
+                    # -srmozafterpaint
                 ]
-            args += [
-                '-f', head_path,
-                '-f', test_path,
-                '-e', 'do_stoneridge(); quit(0);'
-            ]
-            logging.debug('xpcshell args: %s' % (args,))
+                runner = stoneridge.run_firefox
+
             if self.unittest:
                 logging.debug('Not running processes: in unit test mode')
             else:
-                xpcshell_out_file = '%s.xpcshell.out' % (test,)
-                xpcshell_out_file = os.path.join(outdir, xpcshell_out_file)
-                logging.debug('xpcshell output at %s' % (xpcshell_out_file,))
+                process_out_file = '%s.process.out' % (test,)
+                process_out_file = os.path.join(outdir, process_out_file)
+                logging.debug('process output at %s' % (process_out_file,))
                 timed_out = False
-                with file(xpcshell_out_file, 'wb') as f:
+                with file(process_out_file, 'wb') as f:
                     try:
-                        res, _ = stoneridge.run_xpcshell(args, stdout=f)
-                    except stoneridge.XpcshellTimeout:
-                        logging.exception('xpcshell timed out!')
+                        res = runner(args, f)
+                    except stoneridge.TestProcessTimeout:
+                        logging.exception('test process timed out!')
                         timed_out = True
                         res = None
                 if res or timed_out:
